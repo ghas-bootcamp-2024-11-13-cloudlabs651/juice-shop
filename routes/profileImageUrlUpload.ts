@@ -12,6 +12,17 @@ import * as utils from '../lib/utils'
 const security = require('../lib/insecurity')
 const request = require('request')
 
+const allowedDomains = ['example.com', 'another-example.com'];
+
+function isValidUrl(userUrl) {
+  try {
+    const url = new URL(userUrl);
+    return allowedDomains.some(domain => url.hostname.endsWith(domain));
+  } catch (e) {
+    return false;
+  }
+}
+
 module.exports = function profileImageUrlUpload () {
   return (req: Request, res: Response, next: NextFunction) => {
     if (req.body.imageUrl !== undefined) {
@@ -19,8 +30,9 @@ module.exports = function profileImageUrlUpload () {
       if (url.match(/(.)*solve\/challenges\/server-side(.)*/) !== null) req.app.locals.abused_ssrf_bug = true
       const loggedInUser = security.authenticatedUsers.get(req.cookies.token)
       if (loggedInUser) {
-        const imageRequest = request
-          .get(url)
+        if (isValidUrl(url)) {
+          const imageRequest = request
+            .get(url)
           .on('error', function (err: unknown) {
             UserModel.findByPk(loggedInUser.data.id).then(async (user: UserModel | null) => { return await user?.update({ profileImage: url }) }).catch((error: Error) => { next(error) })
             logger.warn(`Error retrieving user profile image: ${utils.getErrorMessage(err)}; using image link directly`)
@@ -32,6 +44,9 @@ module.exports = function profileImageUrlUpload () {
               UserModel.findByPk(loggedInUser.data.id).then(async (user: UserModel | null) => { return await user?.update({ profileImage: `/assets/public/images/uploads/${loggedInUser.data.id}.${ext}` }) }).catch((error: Error) => { next(error) })
             } else UserModel.findByPk(loggedInUser.data.id).then(async (user: UserModel | null) => { return await user?.update({ profileImage: url }) }).catch((error: Error) => { next(error) })
           })
+        } else {
+          next(new Error('Invalid URL provided'))
+        }
       } else {
         next(new Error('Blocked illegal activity by ' + req.socket.remoteAddress))
       }
